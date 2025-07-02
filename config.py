@@ -1,21 +1,17 @@
-# config.py
+# config.py (for Streamlit Cloud)
 
-from dotenv import load_dotenv
-import os
-
-# Load environment variables from .env file
-load_dotenv()
+import streamlit as st
 
 # ================================
 # 🔐 MongoDB Configuration
 # ================================
-MONGODB_URI = os.getenv("MONGODB_URI")
+MONGODB_URI = st.secrets["MONGODB_URI"]
 
 # Databases
-DB_STATIC = os.getenv("DB_STATIC", "healthcare")          # Static profiles + historical vitals
-DB_LIVE = os.getenv("DB_LIVE", "healthcare_db")           # Live vitals, alerts, logs
+DB_STATIC = st.secrets.get("DB_STATIC", "healthcare")          # Static profiles + historical vitals
+DB_LIVE = st.secrets.get("DB_LIVE", "healthcare_db")           # Live vitals, alerts, logs
 
-# Collections (can stay hardcoded unless you want to make them dynamic too)
+# Collections
 COLL_PATIENTS_STATIC = "patients"   # In healthcare
 COLL_PATIENTS_LIVE = "patients"     # In healthcare_db
 COLL_ALERTS = "alerts"
@@ -24,8 +20,8 @@ COLL_LOGS = "logs"
 # ================================
 # ☁️ AWS Configuration
 # ================================
-AWS_REGION = os.getenv("AWS_REGION")
-S3_BUCKET = os.getenv("S3_BUCKET")
+AWS_REGION = st.secrets["AWS_REGION"]
+S3_BUCKET = st.secrets["S3_BUCKET"]
 S3_ANALYSIS_PREFIX = "llm-analyses/"  # e.g., llm-analyses/P004/<timestamp>/analysis.json
 
 PARTITION_KEY_FIELD = "patient_id"
@@ -33,8 +29,8 @@ PARTITION_KEY_FIELD = "patient_id"
 # ================================
 # 🔄 Kinesis Configuration
 # ================================
-KINESIS_STREAM_NAME = os.getenv("KINESIS_STREAM_NAME")
-KINESIS_PARTITION_KEY = os.getenv("KINESIS_PARTITION_KEY")
+KINESIS_STREAM_NAME = st.secrets["KINESIS_STREAM_NAME"]
+KINESIS_PARTITION_KEY = st.secrets["KINESIS_PARTITION_KEY"]
 SEND_TO_KINESIS = True     # Set to False to disable Kinesis publishing
 
 # ================================
