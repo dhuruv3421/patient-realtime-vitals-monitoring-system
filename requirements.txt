@@ -1,0 +1,8 @@
+streamlit
+pandas
+plotly
+boto3
+pymongo[srv]
+python-dotenv
+requests
+numpy   
