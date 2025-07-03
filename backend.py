@@ -84,6 +84,45 @@ def log_event(level, function, message, context=None):
         except Exception as e:
             print(f"[Log DB Error] {e}")
 
+
+def get_latest_vitals_from_s3(patient_id, limit=20):
+    """
+    Fetch latest vitals for a patient from S3 (based on timestamp order).
+    Assumes all objects are under a folder like 'vitals_raw/P001/'.
+    """
+    if s3_client is None:
+        log_event("ERROR", "get_latest_vitals_from_s3", "No S3 client configured.")
+        return []
+
+    prefix = f"vitals_raw/{patient_id}/"  # ✅ FIXED
+
+    try:
+        paginator = s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=S3_BUCKET, Prefix=prefix)
+
+        all_files = []
+        for page in pages:
+            all_files.extend(page.get("Contents", []))
+
+        # Sort by LastModified descending
+        latest_files = sorted(all_files, key=lambda x: x["LastModified"], reverse=True)[:limit]
+
+        vitals_list = []
+        for obj in latest_files:
+            key = obj["Key"]
+            response = s3_client.get_object(Bucket=S3_BUCKET, Key=key)
+            content = response["Body"].read().decode("utf-8")
+            vitals = json.loads(content)
+            vitals_list.append(vitals)
+
+        return vitals_list
+
+    except Exception as e:
+        log_event("ERROR", "get_latest_vitals_from_s3", str(e), {"patient_id": patient_id})
+        return []
+
+
+
 # ===============================
 # Connection Validation
 # ===============================

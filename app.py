@@ -19,12 +19,21 @@ from backend import (
     get_vitals_fluctuations,
     maybe_start_simulation,
     db_live,
-    db_static,
+    db_static,  
     s3_client,
     kinesis_client,
     get_patient_alerts_from_s3,
+    get_latest_vitals_from_s3,
 )
 from producer import set_simulation_running, is_simulation_running
+from streamlit_autorefresh import st_autorefresh
+from config import DASHBOARD_REFRESH_SEC
+
+# @st.cache_data(ttl=2)
+# def get_cached_s3_vitals(patient_id, limit=20):
+#     from backend import get_latest_vitals_from_s3
+#     return get_latest_vitals_from_s3(patient_id, limit)
+
 
 # ===============================
 # Page Config
@@ -81,6 +90,72 @@ def show_simulation_controls():
             else:
                 st.error("Failed to start simulation. Check logs.")
 
+def create_live_scatter_plots(patient_id, limit=20):
+    history = get_latest_vitals_from_s3(patient_id, limit)
+
+    if not history:
+        st.warning("No vitals history available.")
+        return
+
+    df_data = []
+    for record in history:
+        timestamp = pd.to_datetime(record.get("timestamp", datetime.now().isoformat()))
+        df_data.append({
+            "timestamp": timestamp,
+            "heart_rate": record.get("heart_rate", 0),
+            "spo2": record.get("oxygen_saturation", 0),
+            "temperature": record.get("temperature_celsius", 0),
+            "blood_pressure": record.get("blood_pressure", "0/0"),
+        })
+
+    df = pd.DataFrame(df_data)
+    if df.empty:
+        st.warning("No data for plots.")
+        return
+
+    df["systolic"] = df["blood_pressure"].apply(lambda bp: int(bp.split("/")[0]) if "/" in bp else 0)
+    df["diastolic"] = df["blood_pressure"].apply(lambda bp: int(bp.split("/")[1]) if "/" in bp else 0)
+
+    # Heart Rate
+    st.plotly_chart(
+        go.Figure().add_trace(go.Scatter(
+            x=df["timestamp"], y=df["heart_rate"],
+            mode="markers", name="Heart Rate (bpm)", marker=dict(color="red")
+        )).update_layout(title="💓 Heart Rate", xaxis_title="Time", yaxis_title="BPM"),
+        use_container_width=True
+    )
+
+    # SpO2
+    st.plotly_chart(
+        go.Figure().add_trace(go.Scatter(
+            x=df["timestamp"], y=df["spo2"],
+            mode="markers", name="SpO2 (%)", marker=dict(color="blue")
+        )).update_layout(title="🫁 SpO2", xaxis_title="Time", yaxis_title="%"),
+        use_container_width=True
+    )
+
+    # Temperature
+    st.plotly_chart(
+        go.Figure().add_trace(go.Scatter(
+            x=df["timestamp"], y=df["temperature"],
+            mode="markers", name="Temperature (°C)", marker=dict(color="green")
+        )).update_layout(title="🌡️ Temperature", xaxis_title="Time", yaxis_title="°C"),
+        use_container_width=True
+    )
+
+    # Blood Pressure
+    fig_bp = go.Figure()
+    fig_bp.add_trace(go.Scatter(
+        x=df["timestamp"], y=df["systolic"],
+        mode="markers", name="Systolic", marker=dict(color="purple")
+    ))
+    fig_bp.add_trace(go.Scatter(
+        x=df["timestamp"], y=df["diastolic"],
+        mode="markers", name="Diastolic", marker=dict(color="orange")
+    ))
+    fig_bp.update_layout(title="🩸 Blood Pressure", xaxis_title="Time", yaxis_title="mmHg")
+    st.plotly_chart(fig_bp, use_container_width=True)
+
 # ===============================
 # Sidebar Navigation
 # ===============================
@@ -99,6 +174,10 @@ page = st.sidebar.selectbox(
 )
 
 if st.sidebar.button("🔄 Refresh Now"):
+    st.cache_data.clear()
+    st.rerun()
+
+if st.sidebar.button("🧹 Clear Cache"):
     st.cache_data.clear()
     st.rerun()
 
@@ -122,8 +201,8 @@ def display_patient_vitals_card(patient_data, vitals):
                 col2a, col2b, col2c, col2d = st.columns(4)
 
                 hr = vitals.get("heart_rate", 0)
-                spo2 = vitals.get("spo2", 0)
-                temp = vitals.get("temperature", 0)
+                spo2 = vitals.get("oxygen_saturation", 0)
+                temp = vitals.get("temperature_celsius", 0)
                 bp = vitals.get("blood_pressure", "N/A")
 
                 hr_status = "🟢" if 60 <= hr <= 120 else "🔴"
@@ -262,7 +341,7 @@ if page == "🏠 Dashboard":
 
 elif page == "🫀 Live Vitals":
     st.title("🫀 Live Patient Vitals")
-
+    st_autorefresh(interval=DASHBOARD_REFRESH_SEC * 1000, key="live_vitals_refresh")
     patients = fetch_active_patients()
 
     if not patients:
@@ -271,16 +350,20 @@ elif page == "🫀 Live Vitals":
         for patient in patients:
             pid = patient["patient_id"]
             static_profile = get_static_profile(pid)
-            live_vitals = get_live_vitals(pid)
+            vitals_s3 = get_latest_vitals_from_s3(pid, limit=1)
+
+
+            live_vitals = vitals_s3[0] if vitals_s3 else {}
+
 
             with st.expander(f"👤 Patient {pid} - {static_profile.get('name', 'Unknown') if static_profile else 'Unknown'}", expanded=True):
                 if static_profile and live_vitals:
                     display_patient_vitals_card(static_profile, live_vitals)
 
                     if st.button(f"📈 Show History", key=f"chart_{pid}"):
-                        create_vitals_chart(pid)
+                        create_live_scatter_plots(pid)
                 else:
-                    st.error("❌ Unable to load patient data")
+                    st.error("❌ No Live Vitals Data Available for Patient " + pid)
 
 elif page == "🚨 Alerts":
     st.title("🚨 Patient Alerts")

@@ -53,3 +53,4 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 ENABLE_LOGGING = True
 LOG_TO_MONGODB = True
 LOG_SOURCE = "healthcare_dashboard"
+DASHBOARD_REFRESH_SEC = 15
